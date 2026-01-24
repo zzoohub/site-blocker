@@ -33,14 +33,6 @@ function addWebsite() {
   });
 }
 
-function removeWebsite(website) {
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = result.blockedSites || [];
-    const updatedSites = blockedSites.filter((site) => site !== website);
-    saveBlockedSites(updatedSites, loadBlockedSites);
-  });
-}
-
 // ============================================================================
 // UI RENDERING
 // ============================================================================
@@ -68,17 +60,20 @@ function createBlockedSiteElement(site) {
 
   const domain = site.split('/')[0];
 
-  item.innerHTML = `
-    <div class="site-info-popup">
-      <img class="site-favicon-popup" src="https://www.google.com/s2/favicons?sz=32&domain=${domain}" alt="${escapeHtml(domain)} icon">
-      <span>${escapeHtml(site)}</span>
-    </div>
-    <button class="remove-btn" data-site="${escapeHtml(site)}">Remove</button>
-  `;
+  const siteInfo = document.createElement("div");
+  siteInfo.className = "site-info-popup";
 
-  item.querySelector(".remove-btn").addEventListener("click", (e) => {
-    removeWebsite(e.target.getAttribute("data-site"));
-  });
+  const favicon = document.createElement("img");
+  favicon.className = "site-favicon-popup";
+  favicon.src = `https://www.google.com/s2/favicons?sz=32&domain=${domain}`;
+  favicon.alt = `${domain} icon`;
+
+  const siteText = document.createElement("span");
+  siteText.textContent = site;
+
+  siteInfo.appendChild(favicon);
+  siteInfo.appendChild(siteText);
+  item.appendChild(siteInfo);
 
   return item;
 }
@@ -101,10 +96,4 @@ function saveBlockedSites(sites, callback) {
     chrome.runtime.sendMessage({ action: "updateRules", sites });
     if (callback) callback();
   });
-}
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
 }
