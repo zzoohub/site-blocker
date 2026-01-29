@@ -1,7 +1,7 @@
 {
-  "name": "Site Blocker",
-  "description": "Block distracting websites to stay focused and productive",
-  "version": "1.0.0",
+  "name": "Permanent Site Blocker",
+  "description": "Block distracting websites permanently to stay focused and productive",
+  "version": "1.1.0",
   "manifest_version": 3,
   "action": {
     "default_popup": "popup.html",
@@ -16,14 +16,8 @@
     "48": "icon48.png",
     "128": "icon128.png"
   },
-  "permissions": [
-    "declarativeNetRequest",
-    "storage",
-    "tabs"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "permissions": ["declarativeNetRequest", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' https://*.google.com https://*.gstatic.com data:;"
   },

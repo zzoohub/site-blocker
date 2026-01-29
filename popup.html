@@ -155,6 +155,47 @@
                 color: #999;
                 font-size: 14px;
             }
+
+            /* Regex toggle */
+            .regex-toggle {
+                margin-bottom: 12px;
+            }
+
+            .regex-toggle label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+                font-size: 13px;
+                color: #555;
+            }
+
+            .regex-toggle input[type="checkbox"] {
+                width: 16px;
+                height: 16px;
+                margin: 0;
+                padding: 0;
+                cursor: pointer;
+            }
+
+            /* Regex indicator badge */
+            .regex-badge {
+                font-size: 10px;
+                background-color: #9c27b0;
+                color: white;
+                padding: 2px 6px;
+                border-radius: 3px;
+                margin-left: 6px;
+                font-weight: 500;
+            }
+
+            /* Error message */
+            .error-message {
+                color: #f44336;
+                font-size: 12px;
+                margin-bottom: 8px;
+                display: none;
+            }
         </style>
     </head>
     <body>
@@ -166,6 +207,13 @@
             placeholder="Enter website (e.g., youtube.com)"
             autocomplete="off"
         />
+        <div id="errorMessage" class="error-message"></div>
+        <div class="regex-toggle">
+            <label>
+                <input type="checkbox" id="regexMode" />
+                <span>Use Regex</span>
+            </label>
+        </div>
         <button id="addBtn">Block Site</button>
 
         <div class="blocked-list">

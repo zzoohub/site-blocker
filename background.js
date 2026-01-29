@@ -11,7 +11,7 @@
 // ============================================================================
 
 chrome.runtime.onInstalled.addListener(() => {
-  loadAndApplyRules();
+  migrateStorageAndApplyRules();
 });
 
 loadAndApplyRules();
@@ -37,7 +37,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!url || url.startsWith("chrome-extension://")) return;
 
   chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = result.blockedSites || [];
+    const blockedSites = migrateBlockedSites(result.blockedSites || []);
     if (isUrlBlocked(url, blockedSites)) {
       redirectToBlockedPage(tabId, url);
     }
@@ -48,24 +48,93 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // HELPER FUNCTIONS
 // ============================================================================
 
+/**
+ * Migrate old string format to new object format
+ * Old: ["youtube.com", "facebook.com"]
+ * New: [{ pattern: "youtube.com", isRegex: false }, ...]
+ */
+function migrateBlockedSites(sites) {
+  if (!Array.isArray(sites)) return [];
+
+  return sites.map((site) => {
+    if (typeof site === "string") {
+      return { pattern: site, isRegex: false };
+    }
+    return site;
+  });
+}
+
+/**
+ * Migrate storage on install/update and apply rules
+ */
+function migrateStorageAndApplyRules() {
+  chrome.storage.sync.get(["blockedSites"], (result) => {
+    const sites = result.blockedSites || [];
+
+    // Check if migration is needed (any string items)
+    const needsMigration = sites.some((site) => typeof site === "string");
+
+    if (needsMigration) {
+      const migratedSites = migrateBlockedSites(sites);
+      chrome.storage.sync.set({ blockedSites: migratedSites }, () => {
+        if (migratedSites.length > 0) {
+          updateBlockingRules(migratedSites);
+        }
+      });
+    } else {
+      if (sites.length > 0) {
+        updateBlockingRules(sites);
+      }
+    }
+  });
+}
+
 function loadAndApplyRules() {
   chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = result.blockedSites || [];
+    const blockedSites = migrateBlockedSites(result.blockedSites || []);
     if (blockedSites.length > 0) {
       updateBlockingRules(blockedSites);
     }
   });
 }
 
+/**
+ * Check if a URL should be blocked
+ * Handles both regular URL patterns and regex patterns
+ * For regex patterns, URL is decoded before matching to handle encoded characters
+ */
 function isUrlBlocked(url, blockedSites) {
   try {
     const urlObj = new URL(url);
     const hostname = urlObj.hostname.replace(/^www\./, "");
     const pathname = urlObj.pathname;
 
+    // Decode URL for regex matching (handles %ED%95%9C%EA%B8%80 -> 한글)
+    let decodedUrl;
+    try {
+      decodedUrl = decodeURIComponent(url);
+    } catch {
+      // If decoding fails, use original URL
+      decodedUrl = url;
+    }
+
     return blockedSites.some((site) => {
-      if (site.includes("/")) {
-        const [siteDomain, ...pathParts] = site.split("/");
+      if (site.isRegex) {
+        // Regex pattern matching on decoded URL
+        try {
+          const regex = new RegExp(site.pattern, "i");
+          return regex.test(decodedUrl);
+        } catch {
+          // Invalid regex, skip
+          return false;
+        }
+      }
+
+      // Regular URL pattern matching (existing logic)
+      const pattern = site.pattern;
+
+      if (pattern.includes("/")) {
+        const [siteDomain, ...pathParts] = pattern.split("/");
         const sitePath = "/" + pathParts.join("/");
 
         const domainMatches =
@@ -77,9 +146,9 @@ function isUrlBlocked(url, blockedSites) {
       }
 
       return (
-        hostname === site ||
-        hostname === `www.${site}` ||
-        hostname.endsWith(`.${site}`)
+        hostname === pattern ||
+        hostname === `www.${pattern}` ||
+        hostname.endsWith(`.${pattern}`)
       );
     });
   } catch {
@@ -94,29 +163,58 @@ function redirectToBlockedPage(tabId, url) {
   chrome.tabs.update(tabId, { url: blockedPageUrl });
 }
 
+/**
+ * Create blocking rules for declarativeNetRequest API
+ * Regular patterns use urlFilter, regex patterns use regexFilter
+ */
 function createBlockingRules(sites) {
-  return sites.flatMap((site, index) => {
-    const baseRule = {
-      id: index * 2 + 1,
-      priority: 1,
-      action: { type: "block" },
-      condition: {
-        urlFilter: site.includes("/") ? `||${site}*` : `||${site}`,
-        resourceTypes: ["main_frame"],
-      },
-    };
+  const rules = [];
+  let ruleId = 1;
 
-    const wwwRule = {
-      ...baseRule,
-      id: index * 2 + 2,
-      condition: {
-        ...baseRule.condition,
-        urlFilter: site.includes("/") ? `||www.${site}*` : `||www.${site}`,
-      },
-    };
+  sites.forEach((site) => {
+    if (site.isRegex) {
+      // Regex pattern - use regexFilter
+      // Note: regexFilter uses RE2 syntax and works on raw URLs (not decoded)
+      // For Korean character matching in encoded URLs, tab monitoring handles it
+      rules.push({
+        id: ruleId++,
+        priority: 1,
+        action: { type: "block" },
+        condition: {
+          regexFilter: site.pattern,
+          resourceTypes: ["main_frame"],
+        },
+      });
+    } else {
+      // Regular URL pattern - use urlFilter (existing logic)
+      const pattern = site.pattern;
 
-    return [baseRule, wwwRule];
+      rules.push({
+        id: ruleId++,
+        priority: 1,
+        action: { type: "block" },
+        condition: {
+          urlFilter: pattern.includes("/") ? `||${pattern}*` : `||${pattern}`,
+          resourceTypes: ["main_frame"],
+        },
+      });
+
+      // Add www variant
+      rules.push({
+        id: ruleId++,
+        priority: 1,
+        action: { type: "block" },
+        condition: {
+          urlFilter: pattern.includes("/")
+            ? `||www.${pattern}*`
+            : `||www.${pattern}`,
+          resourceTypes: ["main_frame"],
+        },
+      });
+    }
   });
+
+  return rules;
 }
 
 function updateBlockingRules(sites) {
