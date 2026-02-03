@@ -66,13 +66,6 @@ function addWebsite() {
   });
 }
 
-function removeSite(index) {
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = migrateBlockedSites(result.blockedSites || []);
-    blockedSites.splice(index, 1);
-    saveBlockedSites(blockedSites, loadBlockedSites);
-  });
-}
 
 // ============================================================================
 // UI RENDERING
@@ -140,13 +133,6 @@ function createBlockedSiteElement(site, index) {
   }
 
   item.appendChild(siteInfo);
-
-  // Add remove button
-  const removeBtn = document.createElement("button");
-  removeBtn.className = "remove-btn";
-  removeBtn.textContent = "Remove";
-  removeBtn.addEventListener("click", () => removeSite(index));
-  item.appendChild(removeBtn);
 
   return item;
 }

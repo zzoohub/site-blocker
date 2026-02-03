@@ -1,7 +1,7 @@
 {
   "name": "Permanent Site Blocker",
   "description": "Block distracting websites permanently to stay focused and productive",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "manifest_version": 3,
   "action": {
     "default_popup": "popup.html",
