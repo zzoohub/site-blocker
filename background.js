@@ -1,24 +1,19 @@
 /**
- * Website Blocker - Background Service Worker
+ * Site Blocker - Background Service Worker
  *
- * Manages website blocking using:
- * 1. declarativeNetRequest API - Network-level blocking
- * 2. tabs API - Catches cached pages and edge cases
+ * Two blocking layers:
+ * 1. declarativeNetRequest — network-level blocking
+ * 2. tabs.onUpdated — catches cached pages and edge cases
  */
 
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
+importScripts("shared.js");
+
+// -- Initialization & Events ---------------------------------------------------
 
 chrome.runtime.onInstalled.addListener(() => {
-  migrateStorageAndApplyRules();
+  loadAndApplyRules({ persistMigration: true });
 });
-
 loadAndApplyRules();
-
-// ============================================================================
-// MESSAGE HANDLERS
-// ============================================================================
 
 chrome.runtime.onMessage.addListener((request) => {
   if (request.action === "updateRules") {
@@ -26,133 +21,94 @@ chrome.runtime.onMessage.addListener((request) => {
   }
 });
 
-// ============================================================================
-// TAB MONITORING
-// ============================================================================
-
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.url && changeInfo.status !== "loading") return;
 
   const url = changeInfo.url || tab.url;
   if (!url || url.startsWith("chrome-extension://")) return;
 
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = migrateBlockedSites(result.blockedSites || []);
-    if (isUrlBlocked(url, blockedSites)) {
+  getBlockedSites((sites) => {
+    if (isUrlBlocked(url, sites)) {
       redirectToBlockedPage(tabId, url);
     }
   });
 });
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+// -- Storage -------------------------------------------------------------------
 
 /**
- * Migrate old string format to new object format
- * Old: ["youtube.com", "facebook.com"]
- * New: [{ pattern: "youtube.com", isRegex: false }, ...]
+ * Load sites from storage and apply blocking rules.
+ * With persistMigration: true, saves migrated data back to storage (on install/update only).
  */
-function migrateBlockedSites(sites) {
-  if (!Array.isArray(sites)) return [];
-
-  return sites.map((site) => {
-    if (typeof site === "string") {
-      return { pattern: site, isRegex: false };
-    }
-    return site;
-  });
-}
-
-/**
- * Migrate storage on install/update and apply rules
- */
-function migrateStorageAndApplyRules() {
+function loadAndApplyRules({ persistMigration = false } = {}) {
   chrome.storage.sync.get(["blockedSites"], (result) => {
-    const sites = result.blockedSites || [];
+    const raw = result.blockedSites || [];
+    const sites = migrateBlockedSites(raw);
 
-    // Check if migration is needed (any string items)
-    const needsMigration = sites.some((site) => typeof site === "string");
+    if (sites.length === 0) return;
 
-    if (needsMigration) {
-      const migratedSites = migrateBlockedSites(sites);
-      chrome.storage.sync.set({ blockedSites: migratedSites }, () => {
-        if (migratedSites.length > 0) {
-          updateBlockingRules(migratedSites);
-        }
-      });
+    const needsSave =
+      persistMigration && raw.some((s) => typeof s === "string");
+    if (needsSave) {
+      chrome.storage.sync.set({ blockedSites: sites }, () =>
+        updateBlockingRules(sites)
+      );
     } else {
-      if (sites.length > 0) {
-        updateBlockingRules(sites);
-      }
+      updateBlockingRules(sites);
     }
   });
 }
 
-function loadAndApplyRules() {
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = migrateBlockedSites(result.blockedSites || []);
-    if (blockedSites.length > 0) {
-      updateBlockingRules(blockedSites);
-    }
-  });
-}
+// -- URL Matching --------------------------------------------------------------
 
-/**
- * Check if a URL should be blocked
- * Handles both regular URL patterns and regex patterns
- * For regex patterns, URL is decoded before matching to handle encoded characters
- */
 function isUrlBlocked(url, blockedSites) {
   try {
     const urlObj = new URL(url);
     const hostname = urlObj.hostname.replace(/^www\./, "");
-    const pathname = urlObj.pathname;
+    const decodedUrl = tryDecode(url);
 
-    // Decode URL for regex matching (handles %ED%95%9C%EA%B8%80 -> 한글)
-    let decodedUrl;
-    try {
-      decodedUrl = decodeURIComponent(url);
-    } catch {
-      // If decoding fails, use original URL
-      decodedUrl = url;
-    }
-
-    return blockedSites.some((site) => {
-      if (site.isRegex) {
-        // Regex pattern matching on decoded URL
-        try {
-          const regex = new RegExp(site.pattern, "i");
-          return regex.test(decodedUrl);
-        } catch {
-          // Invalid regex, skip
-          return false;
-        }
-      }
-
-      // Regular URL pattern matching (existing logic)
-      const pattern = site.pattern;
-
-      if (pattern.includes("/")) {
-        const [siteDomain, ...pathParts] = pattern.split("/");
-        const sitePath = "/" + pathParts.join("/");
-
-        const domainMatches =
-          hostname === siteDomain ||
-          hostname === `www.${siteDomain}` ||
-          hostname.endsWith(`.${siteDomain}`);
-
-        return domainMatches && pathname.startsWith(sitePath);
-      }
-
-      return (
-        hostname === pattern ||
-        hostname === `www.${pattern}` ||
-        hostname.endsWith(`.${pattern}`)
-      );
-    });
+    return blockedSites.some((site) =>
+      site.isRegex
+        ? matchesRegex(decodedUrl, site.pattern)
+        : matchesUrlPattern(hostname, urlObj.pathname, site.pattern)
+    );
   } catch {
     return false;
+  }
+}
+
+function matchesRegex(url, pattern) {
+  try {
+    return new RegExp(pattern, "i").test(url);
+  } catch {
+    return false;
+  }
+}
+
+function matchesUrlPattern(hostname, pathname, pattern) {
+  if (pattern.includes("/")) {
+    const [domain, ...pathParts] = pattern.split("/");
+    return (
+      matchesDomain(hostname, domain) &&
+      pathname.startsWith("/" + pathParts.join("/"))
+    );
+  }
+  return matchesDomain(hostname, pattern);
+}
+
+function matchesDomain(hostname, domain) {
+  return (
+    hostname === domain ||
+    hostname === `www.${domain}` ||
+    hostname.endsWith(`.${domain}`)
+  );
+}
+
+function tryDecode(url) {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
   }
 }
 
@@ -163,87 +119,55 @@ function redirectToBlockedPage(tabId, url) {
   chrome.tabs.update(tabId, { url: blockedPageUrl });
 }
 
-/**
- * Create blocking rules for declarativeNetRequest API
- * Regular patterns use urlFilter, regex patterns use regexFilter
- */
+// -- Blocking Rules ------------------------------------------------------------
+
+function blockRule(id, condition) {
+  return {
+    id,
+    priority: 1,
+    action: { type: "block" },
+    condition: { ...condition, resourceTypes: ["main_frame"] },
+  };
+}
+
 function createBlockingRules(sites) {
   const rules = [];
-  let ruleId = 1;
+  let id = 1;
 
-  sites.forEach((site) => {
+  for (const site of sites) {
     if (site.isRegex) {
-      // Regex pattern - use regexFilter
-      // Note: regexFilter uses RE2 syntax and works on raw URLs (not decoded)
-      // For Korean character matching in encoded URLs, tab monitoring handles it
-      rules.push({
-        id: ruleId++,
-        priority: 1,
-        action: { type: "block" },
-        condition: {
-          regexFilter: site.pattern,
-          resourceTypes: ["main_frame"],
-        },
-      });
-    } else {
-      // Regular URL pattern - use urlFilter (existing logic)
-      const pattern = site.pattern;
-
-      rules.push({
-        id: ruleId++,
-        priority: 1,
-        action: { type: "block" },
-        condition: {
-          urlFilter: pattern.includes("/") ? `||${pattern}*` : `||${pattern}`,
-          resourceTypes: ["main_frame"],
-        },
-      });
-
-      // Add www variant
-      rules.push({
-        id: ruleId++,
-        priority: 1,
-        action: { type: "block" },
-        condition: {
-          urlFilter: pattern.includes("/")
-            ? `||www.${pattern}*`
-            : `||www.${pattern}`,
-          resourceTypes: ["main_frame"],
-        },
-      });
+      rules.push(blockRule(id++, { regexFilter: site.pattern }));
+      continue;
     }
-  });
+
+    const hasPath = site.pattern.includes("/");
+    const suffix = hasPath ? "*" : "";
+
+    rules.push(blockRule(id++, { urlFilter: `||${site.pattern}${suffix}` }));
+    rules.push(
+      blockRule(id++, { urlFilter: `||www.${site.pattern}${suffix}` })
+    );
+  }
 
   return rules;
 }
 
 function updateBlockingRules(sites) {
   const rules = createBlockingRules(sites);
-  updateDynamicRules(rules);
-  updateSessionRules(rules);
-}
 
-function updateDynamicRules(newRules) {
-  chrome.declarativeNetRequest.getDynamicRules((existingRules) => {
-    const ruleIds = existingRules.map((rule) => rule.id);
+  // Dynamic rules persist across browser restarts
+  chrome.declarativeNetRequest.getDynamicRules((existing) => {
     chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: ruleIds,
-      addRules: newRules,
+      removeRuleIds: existing.map((r) => r.id),
+      addRules: rules,
     });
   });
-}
 
-function updateSessionRules(newRules) {
-  chrome.declarativeNetRequest.getSessionRules((existingRules) => {
-    const ruleIds = existingRules.map((rule) => rule.id);
-    const sessionRules = newRules.map((rule) => ({
-      ...rule,
-      id: rule.id + 1000,
-    }));
-
+  // Session rules are active until the browser closes
+  chrome.declarativeNetRequest.getSessionRules((existing) => {
     chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: ruleIds,
-      addRules: sessionRules,
+      removeRuleIds: existing.map((r) => r.id),
+      addRules: rules.map((r) => ({ ...r, id: r.id + 1000 })),
     });
   });
 }

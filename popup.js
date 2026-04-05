@@ -1,56 +1,45 @@
 document.addEventListener("DOMContentLoaded", () => {
+  const input = document.getElementById("websiteInput");
+  const regexToggle = document.getElementById("regexMode");
+
   loadBlockedSites();
 
   document.getElementById("addBtn").addEventListener("click", addWebsite);
-  document.getElementById("websiteInput").addEventListener("keypress", (e) => {
+  input.addEventListener("keypress", (e) => {
     if (e.key === "Enter") addWebsite();
   });
+  input.addEventListener("input", clearError);
 
-  // Update placeholder based on regex mode
-  document.getElementById("regexMode").addEventListener("change", (e) => {
-    const input = document.getElementById("websiteInput");
-    if (e.target.checked) {
-      input.placeholder = "Enter regex (e.g., youtube\\.com.*[가-힣])";
-    } else {
-      input.placeholder = "Enter website (e.g., youtube.com)";
-    }
+  regexToggle.addEventListener("change", (e) => {
+    input.placeholder = e.target.checked
+      ? "Enter regex (e.g., youtube\\.com.*[가-힣])"
+      : "Enter website (e.g., youtube.com)";
     clearError();
   });
-
-  document.getElementById("websiteInput").addEventListener("input", clearError);
 });
 
-// ============================================================================
-// WEBSITE MANAGEMENT
-// ============================================================================
+// -- Site Management -----------------------------------------------------------
 
 function addWebsite() {
   const input = document.getElementById("websiteInput");
-  const regexMode = document.getElementById("regexMode").checked;
+  const isRegex = document.getElementById("regexMode").checked;
   const rawValue = input.value.trim();
 
   if (!rawValue) return;
 
-  // Validate regex if in regex mode
-  if (regexMode) {
-    if (!isValidRegex(rawValue)) {
-      showError("Invalid regex pattern");
-      return;
-    }
+  if (isRegex && !isValidRegex(rawValue)) {
+    showError("Invalid regex pattern");
+    return;
   }
 
-  const site = regexMode
+  const site = isRegex
     ? { pattern: rawValue, isRegex: true }
     : { pattern: normalizeDomain(rawValue), isRegex: false };
 
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = migrateBlockedSites(result.blockedSites || []);
-
-    // Check for duplicates
+  getBlockedSites((blockedSites) => {
     const isDuplicate = blockedSites.some(
       (s) => s.pattern === site.pattern && s.isRegex === site.isRegex
     );
-
     if (isDuplicate) {
       input.value = "";
       clearError();
@@ -66,80 +55,87 @@ function addWebsite() {
   });
 }
 
+// -- Storage -------------------------------------------------------------------
 
-// ============================================================================
-// UI RENDERING
-// ============================================================================
-
-function loadBlockedSites() {
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const blockedSites = migrateBlockedSites(result.blockedSites || []);
-    const container = document.getElementById("blockedSites");
-
-    // Clear container
-    while (container.firstChild) {
-      container.removeChild(container.firstChild);
-    }
-
-    if (blockedSites.length === 0) {
-      const emptyMessage = document.createElement("p");
-      emptyMessage.style.color = "#999";
-      emptyMessage.textContent = "No blocked websites yet";
-      container.appendChild(emptyMessage);
-      return;
-    }
-
-    blockedSites.forEach((site, index) => {
-      container.appendChild(createBlockedSiteElement(site, index));
-    });
+function saveBlockedSites(sites, callback) {
+  chrome.storage.sync.set({ blockedSites: sites }, () => {
+    chrome.runtime.sendMessage({ action: "updateRules", sites });
+    if (callback) callback();
   });
 }
 
-function createBlockedSiteElement(site, index) {
+// -- UI Rendering --------------------------------------------------------------
+
+function loadBlockedSites() {
+  getBlockedSites((sites) => {
+    const container = document.getElementById("blockedSites");
+    container.textContent = "";
+
+    if (sites.length === 0) {
+      const empty = document.createElement("p");
+      empty.style.color = "#999";
+      empty.textContent = "No blocked websites yet";
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const site of sites) {
+      container.appendChild(createSiteElement(site));
+    }
+  });
+}
+
+function createSiteElement(site) {
   const item = document.createElement("div");
   item.className = "blocked-item";
 
-  const siteInfo = document.createElement("div");
-  siteInfo.className = "site-info-popup";
+  const info = document.createElement("div");
+  info.className = "site-info-popup";
 
   if (site.isRegex) {
-    // For regex patterns, show a regex icon instead of favicon
-    const regexIcon = document.createElement("span");
-    regexIcon.textContent = ".*";
-    regexIcon.style.cssText =
-      "font-family: monospace; font-weight: bold; font-size: 12px; color: #9c27b0; width: 20px; text-align: center;";
-    siteInfo.appendChild(regexIcon);
-
-    const siteText = document.createElement("span");
-    siteText.textContent = site.pattern;
-    siteInfo.appendChild(siteText);
-
-    const badge = document.createElement("span");
-    badge.className = "regex-badge";
-    badge.textContent = "regex";
-    siteInfo.appendChild(badge);
+    info.appendChild(createRegexIcon());
+    info.appendChild(createText(site.pattern));
+    info.appendChild(createBadge("regex"));
   } else {
     const domain = site.pattern.split("/")[0];
-
-    const favicon = document.createElement("img");
-    favicon.className = "site-favicon-popup";
-    favicon.src = `https://www.google.com/s2/favicons?sz=32&domain=${domain}`;
-    favicon.alt = `${domain} icon`;
-    siteInfo.appendChild(favicon);
-
-    const siteText = document.createElement("span");
-    siteText.textContent = site.pattern;
-    siteInfo.appendChild(siteText);
+    info.appendChild(createFavicon(domain));
+    info.appendChild(createText(site.pattern));
   }
 
-  item.appendChild(siteInfo);
-
+  item.appendChild(info);
   return item;
 }
 
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
+function createRegexIcon() {
+  const icon = document.createElement("span");
+  icon.textContent = ".*";
+  icon.style.cssText =
+    "font-family: monospace; font-weight: bold; font-size: 12px; color: #9c27b0; width: 20px; text-align: center;";
+  return icon;
+}
+
+function createFavicon(domain) {
+  const img = document.createElement("img");
+  img.className = "site-favicon-popup";
+  img.src = `https://www.google.com/s2/favicons?sz=32&domain=${domain}`;
+  img.alt = `${domain} icon`;
+  return img;
+}
+
+function createText(text) {
+  const span = document.createElement("span");
+  span.textContent = text;
+  return span;
+}
+
+function createBadge(label) {
+  const badge = document.createElement("span");
+  badge.className = "regex-badge";
+  badge.textContent = label;
+  return badge;
+}
+
+// -- Helpers -------------------------------------------------------------------
 
 function normalizeDomain(url) {
   return url
@@ -160,35 +156,11 @@ function isValidRegex(pattern) {
 }
 
 function showError(message) {
-  const errorEl = document.getElementById("errorMessage");
-  errorEl.textContent = message;
-  errorEl.style.display = "block";
+  const el = document.getElementById("errorMessage");
+  el.textContent = message;
+  el.style.display = "block";
 }
 
 function clearError() {
-  const errorEl = document.getElementById("errorMessage");
-  errorEl.style.display = "none";
-}
-
-/**
- * Migrate old string format to new object format
- * Old: ["youtube.com", "facebook.com"]
- * New: [{ pattern: "youtube.com", isRegex: false }, ...]
- */
-function migrateBlockedSites(sites) {
-  if (!Array.isArray(sites)) return [];
-
-  return sites.map((site) => {
-    if (typeof site === "string") {
-      return { pattern: site, isRegex: false };
-    }
-    return site;
-  });
-}
-
-function saveBlockedSites(sites, callback) {
-  chrome.storage.sync.set({ blockedSites: sites }, () => {
-    chrome.runtime.sendMessage({ action: "updateRules", sites });
-    if (callback) callback();
-  });
+  document.getElementById("errorMessage").style.display = "none";
 }
