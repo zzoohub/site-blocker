@@ -76,7 +76,6 @@ function loadBlockedSites() {
 
     if (sites.length === 0) {
       const empty = document.createElement("p");
-      empty.style.color = "#999";
       empty.textContent = "No blocked websites yet";
       container.appendChild(empty);
       return;
@@ -111,9 +110,8 @@ function createSiteElement(site) {
 
 function createRegexIcon() {
   const icon = document.createElement("span");
+  icon.className = "regex-icon";
   icon.textContent = ".*";
-  icon.style.cssText =
-    "font-family: monospace; font-weight: bold; font-size: 12px; color: #9c27b0; width: 20px; text-align: center;";
   return icon;
 }
 
