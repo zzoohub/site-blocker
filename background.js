@@ -16,7 +16,7 @@ chrome.runtime.onInstalled.addListener(() => {
 loadAndApplyRules();
 
 chrome.runtime.onMessage.addListener((request) => {
-  if (request.action === "updateRules") {
+  if (request.action === MESSAGE_UPDATE_RULES) {
     updateBlockingRules(request.sites);
   }
 });
@@ -41,8 +41,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  * With persistMigration: true, saves migrated data back to storage (on install/update only).
  */
 function loadAndApplyRules({ persistMigration = false } = {}) {
-  chrome.storage.sync.get(["blockedSites"], (result) => {
-    const raw = result.blockedSites || [];
+  chrome.storage.sync.get([STORAGE_KEY], (result) => {
+    const raw = result[STORAGE_KEY] || [];
     const sites = migrateBlockedSites(raw);
 
     if (sites.length === 0) return;
@@ -50,7 +50,7 @@ function loadAndApplyRules({ persistMigration = false } = {}) {
     const needsSave =
       persistMigration && raw.some((s) => typeof s === "string");
     if (needsSave) {
-      chrome.storage.sync.set({ blockedSites: sites }, () =>
+      chrome.storage.sync.set({ [STORAGE_KEY]: sites }, () =>
         updateBlockingRules(sites)
       );
     } else {
@@ -167,7 +167,7 @@ function updateBlockingRules(sites) {
   chrome.declarativeNetRequest.getSessionRules((existing) => {
     chrome.declarativeNetRequest.updateSessionRules({
       removeRuleIds: existing.map((r) => r.id),
-      addRules: rules.map((r) => ({ ...r, id: r.id + 1000 })),
+      addRules: rules.map((r) => ({ ...r, id: r.id + SESSION_RULE_ID_OFFSET })),
     });
   });
 }

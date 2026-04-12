@@ -17,11 +17,11 @@
     const url = new URL(decodedUrl);
     const domain = url.hostname;
 
-    faviconElement.src = `https://www.google.com/s2/favicons?sz=64&domain=${domain}`;
+    faviconElement.src = faviconUrl(domain, 64);
     faviconElement.alt = `${domain} icon`;
 
     faviconElement.onerror = () => {
-      faviconElement.src = `https://www.google.com/s2/favicons?domain=${domain}`;
+      faviconElement.src = faviconUrl(domain);
       faviconElement.onerror = () => (faviconElement.style.display = "none");
     };
   } catch {

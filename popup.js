@@ -61,8 +61,8 @@ function addWebsite() {
 // -- Storage -------------------------------------------------------------------
 
 function saveBlockedSites(sites, callback) {
-  chrome.storage.sync.set({ blockedSites: sites }, () => {
-    chrome.runtime.sendMessage({ action: "updateRules", sites });
+  chrome.storage.sync.set({ [STORAGE_KEY]: sites }, () => {
+    chrome.runtime.sendMessage({ action: MESSAGE_UPDATE_RULES, sites });
     if (callback) callback();
   });
 }
@@ -118,7 +118,7 @@ function createRegexIcon() {
 function createFavicon(domain) {
   const img = document.createElement("img");
   img.className = "site-favicon-popup";
-  img.src = `https://www.google.com/s2/favicons?sz=32&domain=${domain}`;
+  img.src = faviconUrl(domain, 32);
   img.alt = `${domain} icon`;
   return img;
 }
