@@ -28,9 +28,15 @@ function migrateBlockedSites(sites) {
 
 /**
  * Load blocked sites from storage, auto-migrating legacy format.
+ * callback receives (sites, needsMigration):
+ *   sites          — migrated array of { pattern, isRegex } objects
+ *   needsMigration — true if raw storage contained legacy string entries
  */
 function getBlockedSites(callback) {
   chrome.storage.sync.get([STORAGE_KEY], (result) => {
-    callback(migrateBlockedSites(result[STORAGE_KEY] || []));
+    const raw = result[STORAGE_KEY] || [];
+    const sites = migrateBlockedSites(raw);
+    const needsMigration = raw.some((s) => typeof s === "string");
+    callback(sites, needsMigration);
   });
 }

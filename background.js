@@ -41,15 +41,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
  * With persistMigration: true, saves migrated data back to storage (on install/update only).
  */
 function loadAndApplyRules({ persistMigration = false } = {}) {
-  chrome.storage.sync.get([STORAGE_KEY], (result) => {
-    const raw = result[STORAGE_KEY] || [];
-    const sites = migrateBlockedSites(raw);
-
+  getBlockedSites((sites, needsMigration) => {
     if (sites.length === 0) return;
 
-    const needsSave =
-      persistMigration && raw.some((s) => typeof s === "string");
-    if (needsSave) {
+    if (persistMigration && needsMigration) {
       chrome.storage.sync.set({ [STORAGE_KEY]: sites }, () =>
         updateBlockingRules(sites)
       );
