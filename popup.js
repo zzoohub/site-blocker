@@ -1,17 +1,21 @@
+// -- DOM References (resolved once on DOMContentLoaded) -----------------------
+
+let $input, $regexToggle;
+
 document.addEventListener("DOMContentLoaded", () => {
-  const input = document.getElementById("websiteInput");
-  const regexToggle = document.getElementById("regexMode");
+  $input = document.getElementById("websiteInput");
+  $regexToggle = document.getElementById("regexMode");
 
   loadBlockedSites();
 
   document.getElementById("addBtn").addEventListener("click", addWebsite);
-  input.addEventListener("keypress", (e) => {
+  $input.addEventListener("keypress", (e) => {
     if (e.key === "Enter") addWebsite();
   });
-  input.addEventListener("input", clearError);
+  $input.addEventListener("input", clearError);
 
-  regexToggle.addEventListener("change", (e) => {
-    input.placeholder = e.target.checked
+  $regexToggle.addEventListener("change", (e) => {
+    $input.placeholder = e.target.checked
       ? "Enter regex (e.g., youtube\\.com.*[가-힣])"
       : "Enter website (e.g., youtube.com)";
     clearError();
@@ -21,9 +25,8 @@ document.addEventListener("DOMContentLoaded", () => {
 // -- Site Management -----------------------------------------------------------
 
 function addWebsite() {
-  const input = document.getElementById("websiteInput");
-  const isRegex = document.getElementById("regexMode").checked;
-  const rawValue = input.value.trim();
+  const isRegex = $regexToggle.checked;
+  const rawValue = $input.value.trim();
 
   if (!rawValue) return;
 
@@ -41,14 +44,14 @@ function addWebsite() {
       (s) => s.pattern === site.pattern && s.isRegex === site.isRegex
     );
     if (isDuplicate) {
-      input.value = "";
+      $input.value = "";
       clearError();
       return;
     }
 
     blockedSites.push(site);
     saveBlockedSites(blockedSites, () => {
-      input.value = "";
+      $input.value = "";
       clearError();
       loadBlockedSites();
     });
